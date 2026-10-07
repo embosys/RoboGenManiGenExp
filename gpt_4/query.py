@@ -3,7 +3,16 @@ import os
 import time
 import json
 
-os.environ["OPENAI_API_KEY"] = os.environ["YUFEI_OPENAI_API_KEY"] # put your api key here
+api_key_env = os.environ.get("ROBOGEN_API_KEY_ENV")
+if api_key_env:
+    if not os.environ.get(api_key_env):
+        raise ValueError("API key environment variable is missing or empty: "+api_key_env)
+    os.environ["OPENAI_API_KEY"] = os.environ[api_key_env]
+elif "YUFEI_OPENAI_API_KEY" in os.environ:
+    os.environ["OPENAI_API_KEY"] = os.environ["YUFEI_OPENAI_API_KEY"] # legacy key name
+api_base = os.environ.get("OPENAI_BASE_URL") or os.environ.get("OPENAI_API_BASE")
+if api_base:
+    openai.api_base = api_base.rstrip("/")
 def query(system, user_contents, assistant_contents, model='gpt-4', save_path=None, temperature=1, debug=False):
     
     for user_content, assistant_content in zip(user_contents, assistant_contents):
@@ -57,4 +66,3 @@ def query(system, user_contents, assistant_contents, model='gpt-4', save_path=No
             json.dump({"used_time": used_time, "res": result, "system": system, "user": user_contents, "assistant": assistant_contents}, f, indent=4)
 
     return result
-

@@ -5,7 +5,8 @@ import copy
 
 def motion_planning(env, target_pos, target_orientation, planner="BITstar", obstacles=[], allow_collision_links=[], panda_slider=True):
     current_joint_angles = copy.deepcopy(env.robot.get_joint_angles(indices=env.robot.right_arm_joint_indices))
-    ompl_robot = pb_ompl.PbOMPLRobot(env.robot.body)
+    planning_joints = getattr(env.robot, 'planning_joint_indices', None)
+    ompl_robot = pb_ompl.PbOMPLRobot(env.robot.body, joint_indices=planning_joints)
     ompl_robot.set_state(current_joint_angles)
 
     allow_collision_robot_link_pairs = []
@@ -20,6 +21,8 @@ def motion_planning(env, target_pos, target_orientation, planner="BITstar", obst
     # first need to compute a collision-free IK solution
     ik_lower_limits = env.robot.ik_lower_limits 
     ik_upper_limits = env.robot.ik_upper_limits 
+    if planning_joints is not None:
+        ik_dofs = [i for i, info in enumerate(env.robot.ik_joint_names) if info[1] in planning_joints]
     print("ik_lower_limits: ", ik_lower_limits)
     print("ik_upper_limits: ", ik_upper_limits)
     ik_joint_ranges = ik_upper_limits - ik_lower_limits
@@ -39,8 +42,10 @@ def motion_planning(env, target_pos, target_orientation, planner="BITstar", obst
             maxNumIterations=1000,
             residualThreshold=1e-4
         ))
+        planning_target = target_joint_angle if planning_joints is None else target_joint_angle[ik_dofs]
         if np.all(target_joint_angle >= ik_lower_limits) and np.all(target_joint_angle <= ik_upper_limits) \
-                and pb_ompl_interface.is_state_valid(target_joint_angle):
+                and pb_ompl_interface.is_state_valid(planning_target):
+            target_joint_angle = planning_target
             break
         it += 1
 
@@ -66,7 +71,7 @@ def motion_planning(env, target_pos, target_orientation, planner="BITstar", obst
     return res, path
 
 def motion_planning_joint_angle(env, target_joint_angle, planner="BITstar", obstacles=[], allow_collision_links=[], panda_slider=True):
-    ompl_robot = pb_ompl.PbOMPLRobot(env.robot.body)
+    ompl_robot = pb_ompl.PbOMPLRobot(env.robot.body, joint_indices=getattr(env.robot, 'planning_joint_indices', None))
     pb_ompl_interface = pb_ompl.PbOMPL(ompl_robot, obstacles, allow_collision_links)
     pb_ompl_interface.set_planner(planner)
         

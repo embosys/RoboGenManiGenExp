@@ -2,6 +2,9 @@ import os
 import yaml
 import numpy as np
 from PIL import Image
+# MoviePy 1.x uses Pillow's former name for the same Lanczos filter.
+if not hasattr(Image, "ANTIALIAS"):
+    Image.ANTIALIAS = Image.Resampling.LANCZOS
 from moviepy.editor import ImageSequenceClip
 import os.path as osp
 import pybullet as p
@@ -558,32 +561,29 @@ def take_round_images_around_object(env, object_name, distance=None, save_path=N
         object_id = env.urdf_ids[object_name]
         for obj_name, obj_id in env.urdf_ids.items():
             if obj_name != object_name:
-                num_links = p.getNumJoints(obj_id, physicsClientId=env.id)
-                for link_idx in range(-1, num_links):
-                    prev_rgba = p.getVisualShapeData(obj_id, link_idx, physicsClientId=env.id)[0][14:18]
-                    prev_rgbas.append(prev_rgba)
+                # Bullet returns all visual records; link ID is [1], RGBA is [7].
+                # Fixed adapter frames can have no visual geometry.
+                visuals = p.getVisualShapeData(obj_id, physicsClientId=env.id)
+                link_colors = {visual[1]: visual[7] for visual in visuals}
+                for link_idx, prev_rgba in link_colors.items():
+                    prev_rgbas.append((obj_id, link_idx, prev_rgba))
                     p.changeVisualShape(obj_id, link_idx, rgbaColor=[0, 0, 0, 0], physicsClientId=env.id)
 
                                     
-    obj_id = env.urdf_ids[object_name]
-    min_aabb, max_aabb = env.get_aabb(obj_id)
-    camera_target = (max_aabb + min_aabb) / 2
-    if distance is None:
-        distance = np.linalg.norm(max_aabb - min_aabb) * 1.1
+    try:
+        obj_id = env.urdf_ids[object_name]
+        min_aabb, max_aabb = env.get_aabb(obj_id)
+        camera_target = (max_aabb + min_aabb) / 2
+        if distance is None:
+            distance = np.linalg.norm(max_aabb - min_aabb) * 1.1
 
-    res = take_round_images(env, camera_target, distance, elevation=elevation, 
-                             azimuth_interval=azimuth_interval, camera_width=camera_width, camera_height=camera_height, 
-                             save_path=save_path, return_camera_matrices=return_camera_matrices)
-
-    if only_object:
-        cnt = 0
-        object_id = env.urdf_ids[object_name]
-        for obj_name, obj_id in env.urdf_ids.items():
-            if obj_name != object_name:
-                num_links = p.getNumJoints(obj_id, physicsClientId=env.id)
-                for link_idx in range(-1, num_links):
-                    p.changeVisualShape(obj_id, link_idx, rgbaColor=prev_rgbas[cnt], physicsClientId=env.id)
-                    cnt += 1
+        res = take_round_images(env, camera_target, distance, elevation=elevation,
+                               azimuth_interval=azimuth_interval, camera_width=camera_width, camera_height=camera_height,
+                               save_path=save_path, return_camera_matrices=return_camera_matrices)
+    finally:
+        if only_object:
+            for obj_id, link_idx, rgba in prev_rgbas:
+                p.changeVisualShape(obj_id, link_idx, rgbaColor=rgba, physicsClientId=env.id)
                     
     return res
 
@@ -725,6 +725,10 @@ def save_env(env, save_path=None):
     if env.use_table:
         state['table_path'] = env.table_path
 
+    if hasattr(env, 'restore_metadata'):
+        state['external_scene'] = env.restore_metadata()
+        state['external_velocities'] = env.capture_velocities()
+
     if save_path is not None:
         with open(save_path, 'wb') as f:
             pickle.dump(state, f, pickle.HIGHEST_PROTOCOL)
@@ -736,6 +740,9 @@ def load_env(env, load_path=None, state=None):
     if load_path is not None:
         with open(load_path, 'rb') as f:
             state = pickle.load(f)
+
+    if hasattr(env, 'validate_restore'):
+        env.validate_restore(state)
         
     ### set env to stored object position and orientation
     for obj_name, obj_id in env.urdf_ids.items():
@@ -767,6 +774,9 @@ def load_env(env, load_path=None, state=None):
 
     if "table_path" in state and env.use_table:
         env.table_path = state["table_path"]
+
+    if hasattr(env, 'restore_velocities'):
+        env.restore_velocities(state)
 
     return state
 
