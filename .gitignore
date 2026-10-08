@@ -9,3 +9,6 @@ all*.gif
 env_construction/
 .venv/
 output/
+
+# CodeGraph local index
+.codegraph/

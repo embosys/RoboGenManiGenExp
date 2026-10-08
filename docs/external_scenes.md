@@ -42,6 +42,44 @@ CastXML/Py++ (string aliases, default template arguments and QRRT's alias).
 It does not modify any OMPL planner implementation. Runtime package versions
 and the scene hash are recorded with each experiment.
 
+## macOS Apple Silicon environment with uv
+
+From the repository root, run:
+
+```bash
+bash scripts/setup_uv.sh
+```
+
+This creates a uv-managed Python 3.9 `.venv`, installs the versions declared in
+`pyproject.toml` / `uv.lock`, and builds the original OMPL 1.5.2 Python bindings.
+The project uses the Tsinghua PyPI mirror; this does not change global uv settings.
+Gym 0.21 is bootstrapped with pip 23.0.1, setuptools 65.5.0 and wheel 0.38.4.
+The script corrects only its installed optional OpenCV dependency metadata
+(`>=3.` to `>=3`), because uv rejects that malformed version. Gym runtime code
+is unchanged. gRPC 1.43 is built against macOS's existing system zlib to avoid
+its bundled zlib conflicting with current SDK headers. PyBullet 3.2.7 is built
+with `-include stdio.h` so system declarations are parsed before its old zlib
+defines an incompatible `fdopen` macro. The PyTorch 2.0 ARM wheel incorrectly
+labels its installed WHEEL metadata as x86_64; the setup corrects that tag
+without changing its ARM binaries. Run the setup script
+rather than plain `uv sync` on a fresh checkout.
+
+OMPL native dependencies and CastXML are isolated under `output/ompl_env` and
+`output/castxml_env`, using a project-local micromamba. No Homebrew or system
+packages are installed. Building requires the existing Xcode Command Line Tools.
+Bindings and generated C++ files stay under `output/tools/ompl-1.5.2`; a `.pth`
+file in `.venv` makes them importable. Keep these output directories for runtime.
+The `ompl-build` dependency group is needed only when regenerating bindings.
+
+Check the command-line entry point without running a simulation:
+
+```bash
+uv run python run_external_scene.py --help
+```
+
+For the commands below, replace `python` with `uv run python`. Training uses the
+macOS PyTorch build; the original Linux CUDA environment is not reproduced.
+
 ## Usage
 
 Run from the repository root. `--scene-yaml` accepts the original bundle file.
