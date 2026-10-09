@@ -8,7 +8,7 @@ import json
 from manipulation.utils import save_numpy_as_gif, save_env, take_round_images, build_up_env, load_gif
 
 def execute_primitive(task_config, solution_path, substep, last_restore_state_file, save_path, 
-                      gui=False, randomize=False, obj_id=0):
+                      gui=False, randomize=False, obj_id=0, outcome=None):
     # build the env
     task_name = substep.replace(" ", "_")
     env, safe_config = build_up_env(task_config, solution_path, task_name, last_restore_state_file, 
@@ -27,6 +27,8 @@ def execute_primitive(task_config, solution_path, substep, last_restore_state_fi
             break
         cnt += 1
     
+    if outcome is not None:
+        outcome["native_success"] = bool(success)
     p.disconnect(env.id)
 
     return rgbs, states
@@ -106,11 +108,12 @@ def execute(task_config_path,
             only_learn_substep=None,
             reward_learning_save_path=None,
             last_restore_state_file=None,
+            output_dir=None,
 ):
 
     if time_string is None:
         ts = time.time()
-        time_string = datetime.datetime.fromtimestamp(ts).strftime('%Y-%m-%d-%H-%M-%S')
+        time_string = datetime.datetime.fromtimestamp(ts).strftime('%Y-%m-%d-%H-%M-%S-%f' if output_dir else '%Y-%m-%d-%H-%M-%S')
 
     meta_info = {
         "using_motion_planning": use_motion_planning,
@@ -136,7 +139,8 @@ def execute(task_config_path,
     if not os.path.exists(solution_path):
         os.makedirs(solution_path, exist_ok=True)
 
-    experiment_path = os.path.join(solution_path, "experiment")
+    experiment_path = os.path.join(output_dir, "artifacts", "experiment") if output_dir else os.path.join(solution_path, "experiment")
+    outcomes = []
     if not os.path.exists(experiment_path):
         os.makedirs(experiment_path, exist_ok=True)
     with open(os.path.join(experiment_path, "meta_info_{}.json".format(time_string)), 'w') as f:
@@ -176,8 +180,16 @@ def execute(task_config_path,
         print("executing for substep:\n {} {}".format(substep, substep_type))
 
 
+        save_path = None
+        outcome = {"step": step_idx, "name": substep, "type": substep_type,
+                   "status": "running", "native_success": None}
+        outcomes.append(outcome)
+        if output_dir:
+            from run_output import write_json
+            write_json(os.path.join(output_dir, "artifacts", "steps.json"), outcomes)
+
         if substep_type == "primitive" and use_motion_planning:
-            save_path = os.path.join(solution_path, "primitive_states", time_string, substep.replace(" ", "_"))
+            save_path = os.path.join(output_dir, "trajectory", time_string, substep.replace(" ", "_")) if output_dir else os.path.join(solution_path, "primitive_states", time_string, substep.replace(" ", "_"))
             if not os.path.exists(save_path):
                 os.makedirs(save_path, exist_ok=True)
             all_files = os.listdir(save_path)
@@ -190,14 +202,14 @@ def execute(task_config_path,
                 all_rgbs.extend(load_gif(gif_path))
             else:
                 rgbs, states = execute_primitive(task_config_path, solution_path, substep, last_restore_state_file, save_path, 
-                                                 gui=gui, randomize=randomize, obj_id=obj_id,)
+                                                 gui=gui, randomize=randomize, obj_id=obj_id, outcome=outcome)
                 last_restore_state_file = states[-1]
                 all_rgbs.extend(rgbs)
                 save_numpy_as_gif(np.array(rgbs), "{}/{}.gif".format(save_path, "execute"))
 
         
         if substep_type == "reward":
-            save_path = os.path.join(solution_path, training_algo, time_string, substep.replace(" ", "_"))
+            save_path = os.path.join(output_dir, "training", time_string, substep.replace(" ", "_")) if output_dir else os.path.join(solution_path, training_algo, time_string, substep.replace(" ", "_"))
             if reward_learning_save_path is not None:
                 save_path = reward_learning_save_path
 
@@ -227,6 +239,7 @@ def execute(task_config_path,
                                                             use_gpt_joint_angle=use_gpt_joint_angle,
                                                             use_gpt_spatial_relationship=use_gpt_spatial_relationship,
                                                             use_distractor=use_distractor,
+                                                            log_dir=os.path.join(save_path, "ray_results") if output_dir else None,
                                                             )
                 last_restore_state_file = state_files[-1]
                 all_rgbs.extend(rgbs)
@@ -235,13 +248,18 @@ def execute(task_config_path,
             if only_learn_substep is not None:
                 return
 
+        outcome.update(status="completed", final_state=str(last_restore_state_file), artifacts=save_path)
+        if output_dir:
+            write_json(os.path.join(output_dir, "artifacts", "steps.json"), outcomes)
         all_last_state_files.append(str(last_restore_state_file))
         with open(os.path.join(experiment_path, "all_last_state_files_{}.txt".format(time_string)), 'w') as f:
             f.write("\n".join(all_last_state_files))
 
     # save the final gif
-    save_path = os.path.join(solution_path)
+    save_path = os.path.join(output_dir, "artifacts") if output_dir else os.path.join(solution_path)
     save_numpy_as_gif(np.array(all_rgbs), "{}/{}-{}.gif".format(save_path, "all", time_string))
+
+    return outcomes
 
 
 if __name__ == "__main__":

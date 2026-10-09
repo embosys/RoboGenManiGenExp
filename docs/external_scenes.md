@@ -80,29 +80,81 @@ uv run python run_external_scene.py --help
 For the commands below, replace `python` with `uv run python`. Training uses the
 macOS PyTorch build; the original Linux CUDA environment is not reproduced.
 
-## Usage
+## Usage and scene-local outputs
 
-Run from the repository root. `--scene-yaml` accepts the original bundle file.
-The output directory must be inside this repository for the original solution
-module imports. Outputs for each robot and seed are separate; converted assets
-are shared. Choose a different output directory for each source scene.
+Run commands from the repository root. `--scene-yaml` accepts a bundle directory
+or its `scene.yaml`. Every invocation creates a fresh run unless `--run-dir`
+explicitly selects an existing run. Historical `output/external_scene` files
+are left untouched; existing solution directories can still be supplied with
+`--solution`.
 
-The default action is `run`: prepare missing assets, check the scene, generate
-the task through the original LLM pipeline if no formal solution exists, execute
-the original primitives and SAC training, then evaluate the executor's final
-saved state. Existing generated or explicitly supplied solutions are reused.
-An automatic manual reference is replaced through the original generator.
-Any failed stage stops the pipeline; generation requires valid API credentials.
-The original executor and all training/planning settings remain unchanged.
-The adapter removes Markdown heading prefixes from `Substep N:` lines before
-passing the response to the unchanged author parser. It preserves fenced Python
-and reward code and the raw `gpt_response/reward.json` response. Generated and
-supplied solutions must have nonempty, equally sized step/type/action lists,
-supported action spaces and compilable modules with the required task methods;
-invalid solutions stop before execution instead of failing on an empty GIF.
+```text
+<scene directory>/robogen/
+├── _assets/<scene-and-path-hash>/  # Shared converted assets and manifest.json
+└── 20261009_143000_s000/           # Same-name runs get -01, -02, ...
+    ├── run_meta.json
+    ├── result.json
+    ├── run.log
+    ├── llm/
+    │   ├── index.json
+    │   ├── turn_0001.json
+    │   └── reward.json            # Original generator response format
+    ├── code/
+    │   ├── task.yaml
+    │   ├── substeps.txt
+    │   ├── substep_types.txt
+    │   ├── action_spaces.txt
+    │   └── <substep>.py
+    ├── trajectory/<execution timestamp>/<primitive>/
+    │   ├── execute.gif
+    │   └── state_*.pkl
+    ├── training/<execution timestamp>/<reward step>/
+    │   ├── ray_results/
+    │   ├── checkpoint_*/
+    │   ├── best_model/
+    │   ├── best_state/
+    │   ├── eval_*/
+    │   └── execute.gif
+    └── artifacts/
+        ├── experiment.json
+        ├── steps.json
+        ├── experiment/all_last_state_files_<timestamp>.txt
+        ├── generated_solution_<timestamp>/
+        ├── check/                # scene.png, scene_check.json, initial_state.pkl
+        ├── evaluation/           # scene.png, scene_check.json, final_state.pkl
+        └── all-<timestamp>.gif
+```
 
-Configure the LLM in the repository-root `.env` (ignored by Git). Copy
-`.env.example` on a fresh checkout and fill in your key:
+The run ID defaults to local time plus the scene seed (default 0).
+`--run-id NAME` sets its name; `--output-dir ROOT` overrides the root containing
+run directories and `_assets`. `--run-dir PATH` continues a run, inherits its
+scene seed and robot mode, and rejects a different scene, changed scene YAML,
+or explicitly mismatched seed/mode. It appends Python console output to
+`run.log` and records each command as a session. Native PyBullet/C++ output and
+Ray worker output may remain in the terminal or Ray logs rather than `run.log`.
+Continuation means running another pipeline stage with the existing code; it
+is not policy-checkpoint resumption and does not skip completed substeps.
+
+`run_meta.json` records the scene and manifest hashes, source commit/dirty state,
+robot mode, scene seed, training seed, package versions, solution provenance and
+non-secret command arguments. `result.json` records `status`, `native_success`,
+`success`, failure stage/reason, elapsed time, LLM call count and substep outcomes.
+`status=completed` means the requested stage finished, not that manipulation
+succeeded. `native_success` is populated only by the supported final evaluator;
+`success` stays null until a common cross-method evaluator is connected.
+Checks and generation leave both success fields null. Continued stages preserve
+previous result snapshots in `run_meta.json.sessions`.
+
+Failed pipeline stages leave a result and traceback when the run directory has
+been initialized. SIGKILL or power loss can leave status `running`.
+`llm/turn_*.json` records the actual request parameters/messages, response,
+provider usage, duration and errors without authentication headers or keys.
+`llm/reward.json` retains the original generator log. `steps.json` records primitive
+success when returned; reward-step success is not inferred from training return.
+State PKLs retain the original simulation snapshot format, not a standardized
+observation/action/reward dataset.
+
+Configure the LLM in the repository-root `.env` (ignored by Git):
 
 ```dotenv
 LLM_BASE_URL='https://api.deepseek.com'
@@ -110,69 +162,67 @@ LLM_MODEL='deepseek-flash'
 LLM_API_KEY=''
 ```
 
-The model must be supported by your endpoint. Existing shell variables override
-`.env`; explicit `--base-url`, `--model` and `--api-key-env` override their defaults.
-Legacy `OPENAI_API_KEY`, `YUFEI_OPENAI_API_KEY`, `DEEPSEEK_API_KEY`,
-`ROBOGEN_API_KEY_ENV`, `OPENAI_BASE_URL` and `OPENAI_API_BASE` remain supported.
-`--api-key-env` selects the variable containing the key, not the key itself.
-`run` and `generate` require a nonempty key; scene checks do not call the LLM
-and allow an empty key. The base URL must be the API root, not `/chat/completions`.
+Copy `.env.example` on a fresh checkout and fill in the key. Existing shell
+variables override `.env`; explicit `--base-url`, `--model` and `--api-key-env`
+override defaults. Legacy OpenAI/DeepSeek environment variables remain supported.
+The base URL is the API root, not `/chat/completions`. Choose a model supported
+by that endpoint. `run` and `generate` require a nonempty key; checks do not.
 
 ```bash
-SCENE=/home/zhy/SceneSynthesis/output/living_room_26_items_20261006_1791270090985_attempt02/scene.yaml
-# Optional custom key variable; MY_API_KEY must already be exported.
-# .venv/bin/python run_external_scene.py --scene-yaml "$SCENE" --api-key-env MY_API_KEY
-# Complete workflow; omitting --action is equivalent to --action run.
-.venv/bin/python run_external_scene.py --scene-yaml "$SCENE" --robot-mode robogen
-.venv/bin/python run_external_scene.py --scene-yaml "$SCENE" --robot-mode external \
-  --solution output/external_scene/robogen/seed_0/task_solution
+SCENE=/path/to/002_living_room/scene.yaml
 
-# Scene checks only, without generation or training.
-.venv/bin/python run_external_scene.py --scene-yaml "$SCENE" --robot-mode robogen --action check
-.venv/bin/python run_external_scene.py --scene-yaml "$SCENE" --robot-mode external --action check
+# Scene import check only; no LLM calls or RL training.
+.venv/bin/python run_external_scene.py --scene-yaml "$SCENE" --action check
 
-# Original task decomposition / reward generator; requires the repo's OpenAI setup.
-.venv/bin/python run_external_scene.py --scene-yaml "$SCENE" --robot-mode robogen --action generate
+# Full workflow: prepare, check, generate if needed, execute, evaluate.
+.venv/bin/python run_external_scene.py --scene-yaml "$SCENE" --seed 0
 
-# Compare exactly the same generated solution on the other robot.
-.venv/bin/python run_external_scene.py --scene-yaml "$SCENE" --robot-mode external --action prepare \
-  --solution output/external_scene/robogen/seed_0/task_solution
+# Separate generation and execution within the SAME experiment.
+.venv/bin/python run_external_scene.py --scene-yaml "$SCENE" \
+  --action generate --run-id experiment_01
+RUN=/path/to/002_living_room/robogen/experiment_01
+.venv/bin/python run_external_scene.py --scene-yaml "$SCENE" \
+  --action execute --run-dir "$RUN"
 
-# Calls the unmodified execute.py, including its original one-million-step SAC stage.
-.venv/bin/python run_external_scene.py --scene-yaml "$SCENE" --robot-mode robogen --action execute
-.venv/bin/python run_external_scene.py --scene-yaml "$SCENE" --robot-mode external --action execute
+# Same generated code on the source Franka, in a new experiment.
+.venv/bin/python run_external_scene.py --scene-yaml "$SCENE" \
+  --robot-mode external --solution "$RUN/code"
+
+# Check a final saved state in the same experiment.
+.venv/bin/python run_external_scene.py --scene-yaml "$SCENE" \
+  --action evaluate --run-dir "$RUN" --state /path/to/final_state.pkl
 ```
 
-`--action prepare` rebuilds asset conversion and preserves existing task code.
-`--seed N` selects a separate
-experiment directory and sets the external loader / NumPy seeds; the original
-Ray learning seed is left as authored (0), so this flag alone does not create
-multiple SAC training seeds. No planner limits, retry budgets or training
-hyperparameters are changed.
+`--action prepare` refreshes the shared conversion cache and preserves existing
+code when continuing a run. It creates the bundled manual remote-to-tray reference
+only for that supported task. Arbitrary tasks use `generate` or `--solution`.
+Source and converted-asset hashes are checked before reuse; changed assets require
+`prepare`. Keep `_assets` for state restoration. No source assets are edited.
 
-The bundled remote-to-tray solution is a **manual reference task**, adapted from
-the author's example reward pattern. It calls the original grasp/release
-primitives and uses their bounding-box reward pattern. It is not represented as
-LLM-generated. Use `--action generate` for the original LLM generation pipeline,
-or `--solution PATH` for existing generated solutions. Both are adapted only by
-changing their `SimpleEnv` import in a copied directory. Original solution files
-remain untouched. Arbitrary tasks require a supplied or generated solution.
-`--action execute` refuses the automatic manual reference until a generated or
-explicitly supplied solution is selected for the research run.
+Absolute solution files are loaded directly, including inside Ray workers;
+legacy repository-relative module imports remain supported. Generated code is
+adapted only by replacing its `SimpleEnv` import, with the author's generated
+source archived under `artifacts`. The existing solution validation remains.
+
+Original primitives, suction, OMPL planners and SAC hyperparameters are retained.
+Each reward stage still trains for one million steps. `--seed` controls the
+scene/NumPy seed; the original SAC seed remains 0 and is separately recorded as
+`training_seed`. The old `execute.py` entry point keeps its default output paths.
 
 ## Verification and evaluation
 
 `--action check` checks pre-settling positions/orientations, fixed-object drift,
 observation/action shapes, and saves `scene.png`, `scene_check.json` and
-`initial_state.pkl`. It does not require a generated or manual task solution and does not evaluate
+`initial_state.pkl` under `artifacts/check/`. It does not require a generated or manual task solution and does not evaluate
 manipulation success (`evaluation` is null in the check report). The camera uses
 `source_support_id`, `surface` or `target_id` to focus on the task area.
-Final tray evaluation requires `task.goal_id`; goal-point tasks require a
-separate task-specific evaluator. Source hashes
+Final tray evaluation requires `task.goal_id`. Goal-point tasks save their final
+state/render but report `evaluation_status=unsupported_task` and null success;
+they require a separate task-specific evaluator. Source hashes
 are verified before each run. Restore files from a different manifest or robot
 mode are rejected before any state is changed.
-Final evaluation from `run` or `evaluate` writes `evaluation/scene.png`,
-`evaluation/scene_check.json` and `evaluation/final_state.pkl`, preserving the
+Final evaluation from `run` or `evaluate` writes `artifacts/evaluation/scene.png`,
+`artifacts/evaluation/scene_check.json` and `artifacts/evaluation/final_state.pkl`, preserving the
 initial check artifacts. `--state` supplies an initial simulation state; it
 does not resume a policy checkpoint or skip completed substeps.
 The external robot interface clips only limit roundoff within 1e-7 radians when
@@ -183,11 +233,11 @@ source robot colors are baked into a single textured visual per link so temporar
 hiding/restoration preserves them.
 
 ```bash
-ROBOGEN_EXTERNAL_MANIFEST=output/external_scene/manifest.json \
+ROBOGEN_EXTERNAL_MANIFEST=/path/to/robogen/_assets/HASH/manifest.json \
   .venv/bin/python -m unittest discover -s tests -v
 
 .venv/bin/python run_external_scene.py --scene-yaml "$SCENE" --robot-mode robogen \
-  --action evaluate --state PATH_TO_FINAL_STATE.pkl
+  --action evaluate --run-dir "$RUN" --state PATH_TO_FINAL_STATE.pkl
 ```
 
 Independent evaluation checks full-object XY containment with a 5 mm margin,

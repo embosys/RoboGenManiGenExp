@@ -4,6 +4,7 @@ import time
 import json
 from pathlib import Path
 from dotenv import load_dotenv
+from run_output import write_json
 
 load_dotenv(Path(__file__).resolve().parents[1] / ".env")
 
@@ -53,11 +54,28 @@ def query(system, user_contents, assistant_contents, model='gpt-4', save_path=No
     if not os.environ.get("OPENAI_API_KEY"):
         raise ValueError("Missing LLM API key; set LLM_API_KEY in the repository .env")
     openai.api_key = os.environ["OPENAI_API_KEY"]
-    response = openai.ChatCompletion.create(
-        model=os.environ.get("LLM_MODEL") or model,
-        messages=messages,
-        temperature=temperature
-    )
+    request = {"model": os.environ.get("LLM_MODEL") or model, "messages": messages, "temperature": temperature}
+    run_dir = os.environ.get("ROBOGEN_RUN_DIR")
+    index_path = Path(run_dir) / "llm/index.json" if run_dir else None
+    calls = json.loads(index_path.read_text()) if index_path and index_path.exists() else []
+    record = {"status": "running", "request": request, "base_url": openai.api_base}
+    if index_path:
+        filename = "turn_%04d.json" % (len(calls) + 1)
+        calls.append({"file": filename, "status": "running"})
+        write_json(index_path, calls)
+        write_json(index_path.parent / filename, record)
+    try:
+        response = openai.ChatCompletion.create(**request)
+        record.update(status="completed", response=dict(response), usage=dict(response.get("usage", {})))
+    except Exception as error:
+        record.update(status="error", error=str(error))
+        raise
+    finally:
+        if index_path:
+            record["elapsed_seconds"] = time.time() - start
+            calls[-1]["status"] = record["status"]
+            write_json(index_path.parent / filename, record)
+            write_json(index_path, calls)
 
     result = ''
     for choice in response.choices: 

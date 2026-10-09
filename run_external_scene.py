@@ -18,6 +18,8 @@ import yaml
 from dotenv import load_dotenv
 
 from manipulation.external_scene_assets import prepare_scene
+from run_output import RunOutput, capture_console, write_json
+import traceback
 
 ROOT = Path(__file__).resolve().parent
 
@@ -64,9 +66,9 @@ class {name}(SimpleEnv):
 
 def prepare_task(manifest_path, mode, seed, output, solution=None, create_reference=True):
     manifest = json.loads(manifest_path.read_text())
-    directory = output / mode / ("seed_%d" % seed) / "task_solution"
+    directory = output / "code"
     directory.mkdir(parents=True, exist_ok=True)
-    metadata_path = directory.parent / "experiment.json"
+    metadata_path = directory.parent / "artifacts" / "experiment.json"
     previous = json.loads(metadata_path.read_text()) if metadata_path.exists() else {}
     if solution:
         source = Path(solution).resolve()
@@ -84,12 +86,12 @@ def prepare_task(manifest_path, mode, seed, output, solution=None, create_refere
         provenance = "manual_reference_adapted_from_author_example"
     else:
         provenance = "pending_original_generator"
-    relative = str(directory.relative_to(ROOT))
+    relative = str(directory.resolve())
     config = [{"solution_path": relative}, {"external_scene": {
         "manifest": str(manifest_path), "robot_mode": mode, "seed": seed,
         "solution_path": relative}}, {"task_name": manifest["task"]["name"],
                                       "task_description": manifest["task"]["description"]}]
-    config_path = directory.parent / "task.yaml"
+    config_path = directory / "task.yaml"
     config_path.write_text(yaml.safe_dump(config, sort_keys=False))
     metadata = {**previous, "robot_mode": mode, "seed": seed, "source_scene": manifest["source_scene"],
                 "manifest_sha256": hashlib.sha256(manifest_path.read_bytes()).hexdigest(),
@@ -200,7 +202,7 @@ def check_scene(config_path, directory, gui=False, state=None, evaluation=False)
         index = types.index("reward") if "reward" in types else 0
         if index < len(actions):
             translation_mode = actions[index]
-    report_dir = directory.parent / "evaluation" if evaluation else directory.parent
+    report_dir = directory.parent / "artifacts" / ("evaluation" if evaluation else "check")
     report_dir.mkdir(parents=True, exist_ok=True)
     env = ExternalSceneEnv(config_path=str(config_path), restore_state_file=state,
                            translation_mode=translation_mode, gui=gui)
@@ -233,10 +235,12 @@ def check_scene(config_path, directory, gui=False, state=None, evaluation=False)
                   "settling_steps": 500, "initial_poses": initial, "settled_poses": settled,
                   "observation_shape": list(obs.shape), "action_shape": list(env.action_space.shape),
                   "arm_joint_indices": env.robot.right_arm_joint_indices,
-                  "evaluation": final_task_check(env) if evaluation else None}
+                  "evaluation": final_task_check(env) if evaluation and manifest["task"].get("goal_id") else None,
+                  "evaluation_status": "supported" if evaluation and manifest["task"].get("goal_id") else "unsupported_task" if evaluation else "not_requested"}
         (report_dir / "scene_check.json").write_text(json.dumps(report, indent=2))
         save_env(env, report_dir / ("final_state.pkl" if evaluation else "initial_state.pkl"))
         print(json.dumps({k: v for k, v in report.items() if k not in ("initial_poses", "settled_poses")}, indent=2))
+        return report
     finally:
         env.close()
 
@@ -251,7 +255,7 @@ def generate_solution(manifest_path, config_path, directory, model, cached_respo
     objects = [{"name": e["id"], "type": "mesh", "center": str(tuple(e.get("position", [0, 0, 0]))),
                 "lang": e["id"], "size": float(np.linalg.norm(np.diff(e["mesh_asset"]["bounds_local"], axis=0))),
                 "on_table": False} for e in manifest["entities"] if "mesh_asset" in e]
-    log = directory.parent / "gpt_response" / "reward.json"
+    log = directory.parent / "llm" / "reward.json"
     log.parent.mkdir(parents=True, exist_ok=True)
     task = manifest["task"]
     original_query = generator.query
@@ -270,8 +274,10 @@ def generate_solution(manifest_path, config_path, directory, model, cached_respo
     validate_solution(Path(generated))
     prepare_task(manifest_path, yaml.safe_load(config_path.read_text())[1]["external_scene"]["robot_mode"],
                  yaml.safe_load(config_path.read_text())[1]["external_scene"]["seed"],
-                 directory.parents[2], solution=generated)
-    metadata_path = directory.parent / "experiment.json"
+                 directory.parent, solution=generated)
+    archive = directory.parent / "artifacts" / ("generated_solution_" + datetime.now().strftime("%Y%m%d_%H%M%S_%f"))
+    shutil.move(generated, archive)
+    metadata_path = directory.parent / "artifacts" / "experiment.json"
     metadata = json.loads(metadata_path.read_text())
     metadata["solution_provenance"] = "original_robogen_llm_generator"
     metadata["model"] = model
@@ -283,12 +289,15 @@ def main():
     load_dotenv(ROOT / ".env")
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--scene-yaml", required=True, type=Path)
-    parser.add_argument("--robot-mode", choices=("robogen", "external"), default="robogen")
+    parser.add_argument("--robot-mode", choices=("robogen", "external"), default=None)
     parser.add_argument("--action", choices=("run", "prepare", "check", "generate", "execute", "evaluate"),
                         default="run", help="Default: run the complete preparation, check, generation, execution and evaluation pipeline")
-    parser.add_argument("--output-dir", type=Path, default=Path("output/external_scene"))
+    parser.add_argument("--output-dir", type=Path, help="Run root; default: <scene>/robogen")
+    run_options = parser.add_mutually_exclusive_group()
+    run_options.add_argument("--run-id", help="Name for a new run (duplicates receive a suffix)")
+    run_options.add_argument("--run-dir", type=Path, help="Continue an existing run, including its generated code")
     parser.add_argument("--solution", type=Path, help="Existing RoboGen solution directory (copied, never edited in place)")
-    parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--seed", type=int, default=None)
     parser.add_argument("--model", default=os.environ.get("LLM_MODEL") or "deepseek-flash")
     parser.add_argument("--base-url", default=os.environ.get("LLM_BASE_URL") or os.environ.get("OPENAI_BASE_URL") or os.environ.get("OPENAI_API_BASE") or "https://api.deepseek.com",
                         help="OpenAI-compatible API root, including /v1 when required; overrides OPENAI_BASE_URL / OPENAI_API_BASE")
@@ -297,60 +306,100 @@ def main():
     parser.add_argument("--gui", action="store_true")
     parser.add_argument("--state", help="Saved state for final evaluation or continuing execution")
     args = parser.parse_args()
-    if args.action in ("run", "generate") and not os.environ.get(args.api_key_env):
-        parser.error("API key environment variable is missing or empty: "+args.api_key_env)
-    os.environ["ROBOGEN_API_KEY_ENV"] = args.api_key_env
-    os.environ["LLM_MODEL"] = args.model
-    if args.base_url:
-        endpoint = urlparse(args.base_url)
-        if endpoint.scheme not in ("http", "https") or not endpoint.hostname:
-            parser.error("--base-url must be an absolute HTTP(S) URL")
-        os.environ["OPENAI_BASE_URL"] = args.base_url.rstrip("/")
-    full_run = args.action == "run"
-    os.chdir(ROOT)
-    output = args.output_dir.resolve()
-    output.relative_to(ROOT)  # Existing RoboGen dynamic imports require a repo-relative package.
-    scene = args.scene_yaml.resolve()
-    manifest_path = output / "manifest.json"
-    if args.action == "prepare" or not manifest_path.exists():
-        manifest_path = prepare_scene(scene, output)
-    manifest = json.loads(manifest_path.read_text())
-    if manifest["source_scene"] != str(scene):
-        raise ValueError("Output directory belongs to another scene")
-    verify_sources(manifest)
-    directory = output / args.robot_mode / ("seed_%d" % args.seed) / "task_solution"
-    config_path = directory.parent / "task.yaml"
-    config_path, directory = prepare_task(manifest_path, args.robot_mode, args.seed, output, args.solution,
-                                          create_reference=args.action == "prepare" and manifest["task"].get("name") == "move_remote_to_tray")
-    np.random.seed(args.seed)
-    if full_run:
-        print("Checking the scene before task execution")
-        check_scene(config_path, directory, args.gui, args.state)
-        metadata = json.loads((directory.parent / "experiment.json").read_text())
-        if metadata["solution_provenance"] in ("manual_reference_adapted_from_author_example", "pending_original_generator"):
-            print("Generating a task solution with the original RoboGen generator")
-            generate_solution(manifest_path, config_path, directory, args.model)
-        args.action = "execute"
-    if args.action == "generate":
-        generate_solution(manifest_path, config_path, directory, args.model)
-    elif args.action in ("check", "evaluate"):
-        if args.action == "evaluate" and not args.state:
-            parser.error("--action evaluate requires --state")
-        check_scene(config_path, directory, args.gui, args.state, evaluation=args.action == "evaluate")
-    elif args.action == "execute":
-        metadata = json.loads((directory.parent / "experiment.json").read_text())
-        if metadata["solution_provenance"] == "manual_reference_adapted_from_author_example":
-            raise ValueError("Reference code is for compatibility checks; use --action generate or --solution before research execution")
-        validate_solution(directory)
-        from execute import execute
-        run_time = datetime.now().strftime("%Y-%m-%d-%H-%M-%S") if full_run else None
-        execute(str(config_path), gui=args.gui, randomize=False,
-                last_restore_state_file=args.state, time_string=run_time)
-        if full_run:
-            states = (directory / "experiment" / ("all_last_state_files_%s.txt" % run_time)).read_text().splitlines()
-            print("Evaluating the final state from the original executor")
-            check_scene(config_path, directory, args.gui, states[-1], evaluation=True)
-    print("Task config:", config_path)
+    scene = args.scene_yaml.expanduser().resolve()
+    if scene.is_dir():
+        scene = scene / "scene.yaml"
+    run = RunOutput(args, scene)
+    print("Run directory:", run.path)
+    previous_run = os.environ.get("ROBOGEN_RUN_DIR")
+    os.environ["ROBOGEN_RUN_DIR"] = str(run.path)
+    error = None
+    with capture_console(run.path / "run.log"):
+        try:
+            run.phase = "configuration"
+            if args.action in ("run", "generate") and not os.environ.get(args.api_key_env):
+                raise ValueError("API key environment variable is missing or empty: " + args.api_key_env)
+            os.environ["ROBOGEN_API_KEY_ENV"] = args.api_key_env
+            os.environ["LLM_MODEL"] = args.model
+            if args.base_url:
+                endpoint = urlparse(args.base_url)
+                if endpoint.scheme not in ("http", "https") or not endpoint.hostname:
+                    raise ValueError("--base-url must be an absolute HTTP(S) URL")
+                os.environ["OPENAI_BASE_URL"] = args.base_url.rstrip("/")
+            os.chdir(ROOT)
+            run.phase = "prepare"
+            cache_key = hashlib.sha256((str(scene) + run.meta["scene_sha256"]).encode()).hexdigest()
+            cache = run.path.parent / "_assets" / cache_key
+            manifest_path = cache / "manifest.json"
+            if args.action == "prepare" or not manifest_path.exists():
+                manifest_path = prepare_scene(scene, cache)
+            manifest = json.loads(manifest_path.read_text())
+            if manifest["source_scene"] != str(scene):
+                raise ValueError("Asset cache belongs to another scene")
+            verify_sources(manifest)
+            run.meta["manifest"] = str(manifest_path)
+            run.meta["manifest_sha256"] = hashlib.sha256(manifest_path.read_bytes()).hexdigest()
+            config_path, directory = prepare_task(manifest_path, args.robot_mode, args.seed, run.path, args.solution,
+                create_reference=args.action == "prepare" and manifest["task"].get("name") == "move_remote_to_tray")
+            run.persist()
+            np.random.seed(args.seed)
+            action = args.action
+            if action == "run":
+                run.phase = "check"
+                check_scene(config_path, directory, args.gui, args.state)
+                metadata = json.loads((run.path / "artifacts/experiment.json").read_text())
+                if metadata["solution_provenance"] in ("manual_reference_adapted_from_author_example", "pending_original_generator"):
+                    run.phase = "generate"
+                    generate_solution(manifest_path, config_path, directory, args.model)
+                action = "execute"
+            run.phase = action
+            if action == "generate":
+                generate_solution(manifest_path, config_path, directory, args.model)
+            elif action in ("check", "evaluate"):
+                if action == "evaluate" and not args.state:
+                    raise ValueError("--action evaluate requires --state")
+                report = check_scene(config_path, directory, args.gui, args.state, evaluation=action == "evaluate")
+                if action == "evaluate":
+                    run.result["evaluation"] = report["evaluation"]
+                    run.result["evaluation_status"] = report["evaluation_status"]
+                    if report["evaluation"] is not None:
+                        run.result["native_success"] = report["evaluation"]["success"]
+            elif action == "execute":
+                metadata = json.loads((run.path / "artifacts/experiment.json").read_text())
+                if metadata["solution_provenance"] == "manual_reference_adapted_from_author_example":
+                    raise ValueError("Use --action generate or --solution before research execution")
+                validate_solution(directory)
+                from execute import execute
+                run.result["attempts"] = execute(str(config_path), gui=args.gui, randomize=False,
+                    last_restore_state_file=args.state, output_dir=str(run.path))
+                if args.action == "run":
+                    run.phase = "evaluate"
+                    final_state = run.result["attempts"][-1]["final_state"]
+                    report = check_scene(config_path, directory, args.gui, final_state, evaluation=True)
+                    run.result["evaluation"] = report["evaluation"]
+                    run.result["evaluation_status"] = report["evaluation_status"]
+                    if report["evaluation"] is not None:
+                        run.result["native_success"] = report["evaluation"]["success"]
+            print("Task config:", config_path)
+        except BaseException as caught:
+            error = caught
+            traceback.print_exc()
+            raise
+        finally:
+            steps = run.path / "artifacts/steps.json"
+            if run.phase in ("execute", "evaluate") and steps.exists():
+                run.result["attempts"] = json.loads(steps.read_text())
+                if error is not None and run.result["attempts"] and run.result["attempts"][-1]["status"] == "running":
+                    run.result["attempts"][-1].update(status="error", failure_reason=str(error))
+                    write_json(steps, run.result["attempts"])
+            metadata = run.path / "artifacts/experiment.json"
+            if metadata.exists():
+                run.meta["experiment"] = json.loads(metadata.read_text())
+            run.finish(error)
+            if previous_run is None:
+                os.environ.pop("ROBOGEN_RUN_DIR", None)
+            else:
+                os.environ["ROBOGEN_RUN_DIR"] = previous_run
 
 
 if __name__ == "__main__":

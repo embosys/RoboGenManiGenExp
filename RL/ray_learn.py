@@ -48,14 +48,14 @@ def setup_config(algo, seed=0, env_config={}, eval=False):
     config["env_config"] = env_config
     return config
 
-def load_policy(algo, env_name, policy_path=None, seed=0, env_config={}, eval=False):
+def load_policy(algo, env_name, policy_path=None, seed=0, env_config={}, eval=False, log_dir=None):
     if algo == 'ppo':
         agent = ppo.PPOTrainer(setup_config(algo, seed, env_config, eval=eval), env_name,
-                               logger_creator=custom_log_creator("data/local/ray_results", env_name)
+                               logger_creator=custom_log_creator(log_dir or "data/local/ray_results", env_name)
         )
     elif algo == 'sac':
         agent = sac.SACTrainer(setup_config(algo, seed, env_config, eval=eval), env_name, 
-                               logger_creator=custom_log_creator("data/local/ray_results", env_name)
+                               logger_creator=custom_log_creator(log_dir or "data/local/ray_results", env_name)
         )
     if policy_path is not None:
         if 'checkpoint' in policy_path:
@@ -74,11 +74,11 @@ def load_policy(algo, env_name, policy_path=None, seed=0, env_config={}, eval=Fa
     return agent, None
 
 def train(env_name, algo, timesteps_total=2000000, save_dir='./trained_models/', load_policy_path='', seed=0, 
-          env_config={}, eval_interval=20000, render=False):
+          env_config={}, eval_interval=20000, render=False, log_dir=None):
 
     if not ray.is_initialized():
         ray.init(num_cpus=8, ignore_reinit_error=True, log_to_driver=False)
-    agent, checkpoint_path = load_policy(algo, env_name, load_policy_path, env_config=env_config, seed=seed)
+    agent, checkpoint_path = load_policy(algo, env_name, load_policy_path, env_config=env_config, seed=seed, log_dir=log_dir)
 
     env = make_env(env_config, render=render)
 
@@ -199,7 +199,7 @@ def run_RL(task_config_path, solution_path, task_name, last_restore_state_file, 
            action_space='delta-translation', algo="sac", timesteps_total=1000000, load_policy_path=None, seed=0, 
            render=False, randomize=False, use_bard=True, obj_id=0, 
            use_gpt_size=True, use_gpt_joint_angle=True, use_gpt_spatial_relationship=True,
-           use_distractor=False):
+           use_distractor=False, log_dir=None):
     env_name = task_name
 
     env_config = {
@@ -222,7 +222,7 @@ def run_RL(task_config_path, solution_path, task_name, last_restore_state_file, 
     
     tune.register_env(env_name, lambda config: make_env(config))
     best_policy_path, rgbs, best_traj_state_paths = train(env_name, algo, timesteps_total=timesteps_total, 
-                            load_policy_path=load_policy_path, save_dir=save_path, seed=seed, env_config=env_config, render=render,
+                            load_policy_path=load_policy_path, save_dir=save_path, seed=seed, env_config=env_config, render=render, log_dir=log_dir,
                             eval_interval=eval_interval)
     
     return best_policy_path, rgbs, best_traj_state_paths

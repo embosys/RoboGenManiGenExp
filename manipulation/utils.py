@@ -16,6 +16,10 @@ import multiprocessing.pool
 import pickle
 import copy
 import importlib
+import importlib.util
+import hashlib
+import sys
+from pathlib import Path
 from PIL import Image, ImageSequence
 import multiprocessing
 import objaverse
@@ -155,7 +159,15 @@ def build_up_env(task_config, solution_path, task_name, restore_state_file, retu
     save_config['obj_id'] = obj_id
 
     ### you might want to restore to a specific state
-    module = importlib.import_module("{}.{}".format(solution_path.replace("/", "."), task_name))
+    if Path(solution_path).is_absolute():
+        source = Path(solution_path) / (task_name + ".py")
+        module_name = "robogen_solution_" + hashlib.sha256(str(source).encode()).hexdigest()
+        spec = importlib.util.spec_from_file_location(module_name, source)
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[module_name] = module
+        spec.loader.exec_module(module)
+    else:
+        module = importlib.import_module("{}.{}".format(solution_path.replace("/", "."), task_name))
     env_class = getattr(module, task_name)
     env = env_class(**save_config)
 
