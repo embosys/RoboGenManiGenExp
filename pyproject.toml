@@ -23,6 +23,7 @@ dependencies = [
     "mujoco==3.3.7",
     "torch==2.0.0",
     "setuptools==65.5.0",
+    "python-dotenv>=1,<2",
 ]
 
 [tool.uv]

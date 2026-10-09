@@ -101,24 +101,22 @@ supplied solutions must have nonempty, equally sized step/type/action lists,
 supported action spaces and compilable modules with the required task methods;
 invalid solutions stop before execution instead of failing on an empty GIF.
 
-Configure credentials with `OPENAI_API_KEY` (or the legacy `YUFEI_OPENAI_API_KEY`,
-which overrides it). To use a different variable, pass `--api-key-env MY_API_KEY`
-or set `ROBOGEN_API_KEY_ENV=MY_API_KEY`. The option takes a variable name, not
-the key itself. Priority is `--api-key-env` > `ROBOGEN_API_KEY_ENV` > the legacy
-selection. An explicitly selected variable must be set and nonempty; missing
-values fail without falling back to another key. For an OpenAI-compatible endpoint, use `--base-url URL`
-or set `OPENAI_BASE_URL`; the older `OPENAI_API_BASE` is also supported.
-Priority is `--base-url` > `OPENAI_BASE_URL` > `OPENAI_API_BASE` > the SDK's
-default OpenAI endpoint. Supply the complete API root, such as
-`https://your-provider.example/v1`, not `/chat/completions`; the SDK appends
-`/chat/completions`. Trailing slashes are removed. Choose a supported model
-using `--model`; the endpoint must support the original Chat Completions API.
-The script does not automatically load `.env` files.
+Configure the LLM in the repository-root `.env` (ignored by Git). Copy
+`.env.example` on a fresh checkout and fill in your key:
 
-```bash
-export OPENAI_BASE_URL='https://your-provider.example/v1'
-# Or append --base-url https://your-provider.example/v1 to the commands below.
+```dotenv
+LLM_BASE_URL='https://api.deepseek.com'
+LLM_MODEL='deepseek-flash'
+LLM_API_KEY=''
 ```
+
+The model must be supported by your endpoint. Existing shell variables override
+`.env`; explicit `--base-url`, `--model` and `--api-key-env` override their defaults.
+Legacy `OPENAI_API_KEY`, `YUFEI_OPENAI_API_KEY`, `DEEPSEEK_API_KEY`,
+`ROBOGEN_API_KEY_ENV`, `OPENAI_BASE_URL` and `OPENAI_API_BASE` remain supported.
+`--api-key-env` selects the variable containing the key, not the key itself.
+`run` and `generate` require a nonempty key; scene checks do not call the LLM
+and allow an empty key. The base URL must be the API root, not `/chat/completions`.
 
 ```bash
 SCENE=/home/zhy/SceneSynthesis/output/living_room_26_items_20261006_1791270090985_attempt02/scene.yaml

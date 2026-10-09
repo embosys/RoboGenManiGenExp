@@ -2,15 +2,19 @@ import openai
 import os
 import time
 import json
+from pathlib import Path
+from dotenv import load_dotenv
+
+load_dotenv(Path(__file__).resolve().parents[1] / ".env")
 
 api_key_env = os.environ.get("ROBOGEN_API_KEY_ENV")
 if api_key_env:
-    if not os.environ.get(api_key_env):
-        raise ValueError("API key environment variable is missing or empty: "+api_key_env)
-    os.environ["OPENAI_API_KEY"] = os.environ[api_key_env]
+    os.environ["OPENAI_API_KEY"] = os.environ.get(api_key_env, "")
+elif "LLM_API_KEY" in os.environ:
+    os.environ["OPENAI_API_KEY"] = os.environ["LLM_API_KEY"]
 elif "YUFEI_OPENAI_API_KEY" in os.environ:
     os.environ["OPENAI_API_KEY"] = os.environ["YUFEI_OPENAI_API_KEY"] # legacy key name
-api_base = os.environ.get("OPENAI_BASE_URL") or os.environ.get("OPENAI_API_BASE")
+api_base = os.environ.get("OPENAI_BASE_URL") or os.environ.get("LLM_BASE_URL") or os.environ.get("OPENAI_API_BASE")
 if api_base:
     openai.api_base = api_base.rstrip("/")
 def query(system, user_contents, assistant_contents, model='gpt-4', save_path=None, temperature=1, debug=False):
@@ -46,9 +50,11 @@ def query(system, user_contents, assistant_contents, model='gpt-4', save_path=No
         messages.append({"role": "assistant", "content": assistant_contents[idx]})
     messages.append({"role": "user", "content": user_contents[-1]})
 
+    if not os.environ.get("OPENAI_API_KEY"):
+        raise ValueError("Missing LLM API key; set LLM_API_KEY in the repository .env")
     openai.api_key = os.environ["OPENAI_API_KEY"]
     response = openai.ChatCompletion.create(
-        model=model,
+        model=os.environ.get("LLM_MODEL") or model,
         messages=messages,
         temperature=temperature
     )

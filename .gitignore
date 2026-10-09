@@ -12,3 +12,7 @@ output/
 
 # CodeGraph local index
 .codegraph/
+
+# Local LLM credentials
+.env
+.ENV

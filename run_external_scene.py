@@ -15,6 +15,7 @@ from unittest.mock import patch
 
 import numpy as np
 import yaml
+from dotenv import load_dotenv
 
 from manipulation.external_scene_assets import prepare_scene
 
@@ -274,6 +275,7 @@ def generate_solution(manifest_path, config_path, directory, model, cached_respo
 
 
 def main():
+    load_dotenv(ROOT / ".env")
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--scene-yaml", required=True, type=Path)
     parser.add_argument("--robot-mode", choices=("robogen", "external"), default="robogen")
@@ -282,18 +284,18 @@ def main():
     parser.add_argument("--output-dir", type=Path, default=Path("output/external_scene"))
     parser.add_argument("--solution", type=Path, help="Existing RoboGen solution directory (copied, never edited in place)")
     parser.add_argument("--seed", type=int, default=0)
-    parser.add_argument("--model", default="deepseek-flash")
-    parser.add_argument("--base-url", default="https://api.deepseek.com",
+    parser.add_argument("--model", default=os.environ.get("LLM_MODEL") or "deepseek-flash")
+    parser.add_argument("--base-url", default=os.environ.get("LLM_BASE_URL") or os.environ.get("OPENAI_BASE_URL") or os.environ.get("OPENAI_API_BASE") or "https://api.deepseek.com",
                         help="OpenAI-compatible API root, including /v1 when required; overrides OPENAI_BASE_URL / OPENAI_API_BASE")
-    parser.add_argument("--api-key-env", default="DEEPSEEK_API_KEY",
+    parser.add_argument("--api-key-env", default=os.environ.get("ROBOGEN_API_KEY_ENV") or ("LLM_API_KEY" if "LLM_API_KEY" in os.environ else "YUFEI_OPENAI_API_KEY" if "YUFEI_OPENAI_API_KEY" in os.environ else "OPENAI_API_KEY" if "OPENAI_API_KEY" in os.environ else "DEEPSEEK_API_KEY"),
                         help="Environment variable containing the API key; overrides ROBOGEN_API_KEY_ENV and legacy key selection")
     parser.add_argument("--gui", action="store_true")
     parser.add_argument("--state", help="Saved state for final evaluation or continuing execution")
     args = parser.parse_args()
-    if args.api_key_env is not None:
-        if not args.api_key_env or not os.environ.get(args.api_key_env):
-            parser.error("API key environment variable is missing or empty: "+args.api_key_env)
-        os.environ["ROBOGEN_API_KEY_ENV"] = args.api_key_env
+    if args.action in ("run", "generate") and not os.environ.get(args.api_key_env):
+        parser.error("API key environment variable is missing or empty: "+args.api_key_env)
+    os.environ["ROBOGEN_API_KEY_ENV"] = args.api_key_env
+    os.environ["LLM_MODEL"] = args.model
     if args.base_url:
         endpoint = urlparse(args.base_url)
         if endpoint.scheme not in ("http", "https") or not endpoint.hostname:
