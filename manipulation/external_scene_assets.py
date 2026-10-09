@@ -155,6 +155,13 @@ def convert_mjcf(source, directory):
 def convert_mesh(source, scale, fixed, directory, file_meshes_are_zup=None):
     import pybullet as p
     scene = trimesh.load(source, force="scene", process=False)
+    non_mesh = [name for name, geometry in scene.geometry.items()
+                if not isinstance(geometry, trimesh.Trimesh)]
+    if non_mesh:
+        scene.delete_geometry(non_mesh)
+        print("Skipping %d non-triangle geometries in %s" % (len(non_mesh), source), flush=True)
+    if not scene.geometry:
+        raise ValueError("Asset contains no triangle meshes: %s" % source)
     convert_up = (Path(source).suffix.lower() in (".glb", ".gltf") and file_meshes_are_zup is not True) or file_meshes_are_zup is False
     if convert_up:
         # Match Genesis GLTF loading: Y-up file coordinates become Z-up local coordinates.

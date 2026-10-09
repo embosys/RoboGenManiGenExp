@@ -742,7 +742,7 @@ class SimpleEnv(gym.Env):
             self.view_matrix, self.projection_matrix, 
             renderer=p.ER_BULLET_HARDWARE_OPENGL, 
             physicsClientId=self.id)
-        img = np.reshape(img, (h, w, 4))[:, :, :3]
+        img = np.asarray(img, dtype=np.uint8).reshape(h, w, 4)[:, :, :3]
         depth = np.reshape(depth, (h, w))
 
         return img, depth

@@ -164,7 +164,11 @@ explicitly supplied solution is selected for the research run.
 
 `--action check` checks pre-settling positions/orientations, fixed-object drift,
 observation/action shapes, and saves `scene.png`, `scene_check.json` and
-`initial_state.pkl`. It does not claim a successful manipulation. Source hashes
+`initial_state.pkl`. It does not require a generated or manual task solution and does not evaluate
+manipulation success (`evaluation` is null in the check report). The camera uses
+`source_support_id`, `surface` or `target_id` to focus on the task area.
+Final tray evaluation requires `task.goal_id`; goal-point tasks require a
+separate task-specific evaluator. Source hashes
 are verified before each run. Restore files from a different manifest or robot
 mode are rejected before any state is changed.
 Final evaluation from `run` or `evaluate` writes `evaluation/scene.png`,
@@ -192,7 +196,9 @@ lengthwise alignment within 10 degrees, contact with the tray without more than
 bounding-box approximation of the tray interior and does not change the training
 reward. Inspect the final render and collision model alongside these metrics.
 
-Conversion preserves GLB scene graph transforms and matches Genesis's automatic
+Non-triangle geometries (such as GLB line paths) are excluded from visual and
+collision export, with a console notice. Assets containing no triangle meshes
+are rejected. Conversion preserves GLB scene graph transforms and matches Genesis's automatic
 Y-up to Z-up conversion before applying scale. Static meshes use concave
 triangle collisions; dynamic meshes use convex collisions or PyBullet VHACD's
 default settings, with individual hulls retained. Dynamic mass defaults to 0.1 kg

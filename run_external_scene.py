@@ -156,6 +156,8 @@ def validate_solution(directory):
 
 def final_task_check(env):
     """Independent evaluation; never changes the author's training reward."""
+    if not env.manifest["task"].get("goal_id"):
+        raise ValueError("Final tray evaluation requires task.goal_id; goal-point tasks need their own evaluator")
     # ponytail: bounding-box interior; use authored regions for irregular containers.
     import pybullet as p
     from scipy.spatial.transform import Rotation
@@ -217,7 +219,10 @@ def check_scene(config_path, directory, gui=False, state=None, evaluation=False)
                 max_drift = max(max_drift, drift)
                 if entity.get("fixed") and drift > 1e-9:
                     raise AssertionError("Fixed object moved: "+name)
-        center = np.array(manifest["entities"][[e["id"] for e in manifest["entities"]].index(manifest["task"]["source_support_id"])]["position"])
+        task = manifest["task"]
+        focus_id = task.get("source_support_id") or task.get("surface") or task.get("target_id")
+        focus = next((entity for entity in manifest["entities"] if entity["id"] == focus_id), None)
+        center = np.array(focus.get("position", [0, 0, 0]) if focus else [0, 0, 0])
         env.setup_camera(camera_eye=[2.7, -2.7, 2.5], camera_target=center)
         Image.fromarray(env.render()[0]).save(report_dir / "scene.png")
         obs = env._get_obs() if state else env.reset()
@@ -228,7 +233,7 @@ def check_scene(config_path, directory, gui=False, state=None, evaluation=False)
                   "settling_steps": 500, "initial_poses": initial, "settled_poses": settled,
                   "observation_shape": list(obs.shape), "action_shape": list(env.action_space.shape),
                   "arm_joint_indices": env.robot.right_arm_joint_indices,
-                  "evaluation": final_task_check(env)}
+                  "evaluation": final_task_check(env) if evaluation else None}
         (report_dir / "scene_check.json").write_text(json.dumps(report, indent=2))
         save_env(env, report_dir / ("final_state.pkl" if evaluation else "initial_state.pkl"))
         print(json.dumps({k: v for k, v in report.items() if k not in ("initial_poses", "settled_poses")}, indent=2))
@@ -316,7 +321,7 @@ def main():
     directory = output / args.robot_mode / ("seed_%d" % args.seed) / "task_solution"
     config_path = directory.parent / "task.yaml"
     config_path, directory = prepare_task(manifest_path, args.robot_mode, args.seed, output, args.solution,
-                                          create_reference=args.action not in ("generate", "run"))
+                                          create_reference=args.action == "prepare" and manifest["task"].get("name") == "move_remote_to_tray")
     np.random.seed(args.seed)
     if full_run:
         print("Checking the scene before task execution")
