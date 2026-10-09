@@ -8,6 +8,7 @@ all_last_state_files_*.txt
 all*.gif
 env_construction/
 .venv/
+uv.lock
 output/
 
 # CodeGraph local index

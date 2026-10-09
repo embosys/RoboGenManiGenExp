@@ -18,6 +18,32 @@ correction; its drift is reported.
 
 ## Environment
 
+The uv environment can be recreated from this repository's root with:
+
+```bash
+bash scripts/setup_uv.sh
+CUDA_VISIBLE_DEVICES=0 uv run python run_external_scene.py --help
+```
+
+`pyproject.toml` declares the Python 3.9 experiment dependencies.
+`uv.lock` is generated locally and is not tracked in Git.
+The configuration uses the Linux x86_64 wheels' dependency metadata for
+PyTorch 2.0.0 and Open3D 0.14.1, whose older releases have different metadata
+across platforms. This ensures CUDA 11.7 libraries and Open3D's notebook
+dependencies are installed. The OMPL build disables its optional registration
+webpage so unattended installation does not block on opening a browser.
+The setup script downloads and verifies Gym 0.21's source archive under
+`output/vendor`, then fixes only its invalid `opencv-python>=3.` packaging
+metadata to `>=3.0`. Gym's runtime code is unchanged. Run the setup script
+before `uv sync` on a new checkout so this local dependency exists.
+Use `bash scripts/setup_uv.sh --skip-ompl` to install only the Python packages.
+The full setup builds OMPL 1.5.2 with the existing isolated build script;
+its tools and native libraries remain under `output/`. No system packages
+are installed. `source prepare.sh` now activates `.venv`.
+This environment covers the external scene generation/execution workflow.
+The original Objaverse retrieval pipeline additionally needs LAVIS and
+SentenceTransformer models and separately downloaded datasets.
+
 Use Python 3.9 and the original Gym 0.21 / Ray 1.13 interfaces. For Gym's old
 packaging metadata, install pip 23.0.1, setuptools 65.5.0 and wheel 0.38.4 first,
 then `python -m pip install --no-build-isolation gym==0.21.0`. Install

@@ -28,14 +28,68 @@ dependencies = [
 
 [tool.uv]
 package = false
-environments = ["sys_platform == 'darwin' and platform_machine == 'arm64'"]
+environments = [
+    "sys_platform == 'darwin' and platform_machine == 'arm64'",
+    "sys_platform == 'linux' and platform_machine == 'x86_64'",
+]
 build-constraint-dependencies = ["setuptools==65.5.0", "wheel==0.38.4"]
+
+# Linux setup provides the original Gym source with its invalid optional
+# OpenCV version corrected; using it also avoids reinstalling malformed metadata.
+[tool.uv.sources]
+gym = [{ path = "output/vendor/gym-0.21.0", marker = "sys_platform == 'linux'" }]
 
 # Gym 0.21 has an invalid optional OpenCV requirement in its original metadata.
 [[tool.uv.dependency-metadata]]
 name = "gym"
 version = "0.21.0"
 requires-dist = ["numpy>=1.18.0", "cloudpickle>=1.2.0", "importlib-metadata>=4.8.1; python_version < '3.10'"]
+
+# These older wheels publish different dependency metadata on Linux and macOS.
+
+[[tool.uv.dependency-metadata]]
+name = "torch"
+version = "2.0.0"
+requires-dist = [
+    "filelock",
+    "typing-extensions",
+    "sympy",
+    "networkx",
+    "jinja2",
+    "nvidia-cuda-nvrtc-cu11 (==11.7.99) ; platform_system == \"Linux\" and platform_machine == \"x86_64\"",
+    "nvidia-cuda-runtime-cu11 (==11.7.99) ; platform_system == \"Linux\" and platform_machine == \"x86_64\"",
+    "nvidia-cuda-cupti-cu11 (==11.7.101) ; platform_system == \"Linux\" and platform_machine == \"x86_64\"",
+    "nvidia-cudnn-cu11 (==8.5.0.96) ; platform_system == \"Linux\" and platform_machine == \"x86_64\"",
+    "nvidia-cublas-cu11 (==11.10.3.66) ; platform_system == \"Linux\" and platform_machine == \"x86_64\"",
+    "nvidia-cufft-cu11 (==10.9.0.58) ; platform_system == \"Linux\" and platform_machine == \"x86_64\"",
+    "nvidia-curand-cu11 (==10.2.10.91) ; platform_system == \"Linux\" and platform_machine == \"x86_64\"",
+    "nvidia-cusolver-cu11 (==11.4.0.1) ; platform_system == \"Linux\" and platform_machine == \"x86_64\"",
+    "nvidia-cusparse-cu11 (==11.7.4.91) ; platform_system == \"Linux\" and platform_machine == \"x86_64\"",
+    "nvidia-nccl-cu11 (==2.14.3) ; platform_system == \"Linux\" and platform_machine == \"x86_64\"",
+    "nvidia-nvtx-cu11 (==11.7.91) ; platform_system == \"Linux\" and platform_machine == \"x86_64\"",
+    "triton (==2.0.0) ; platform_system == \"Linux\" and platform_machine == \"x86_64\"",
+]
+
+[[tool.uv.dependency-metadata]]
+name = "open3d"
+version = "0.14.1"
+requires-dist = [
+    "setuptools (>=40.8.0)",
+    "wheel (>=0.36.0)",
+    "numpy (>=1.18.0)",
+    "ipywidgets (>=7.6.0); sys_platform == 'linux' and platform_machine == 'x86_64'",
+    "pygments (>=2.7.4); sys_platform == 'linux' and platform_machine == 'x86_64'",
+    "jupyter-packaging (~=0.10); sys_platform == 'linux' and platform_machine == 'x86_64'",
+    "jupyterlab (==3.*,>=3.0.0); sys_platform == 'linux' and platform_machine == 'x86_64'",
+    "addict",
+    "pillow (>=8.2.0)",
+    "matplotlib (>=3)",
+    "numpy (>1.15)",
+    "pandas (>=1.0)",
+    "pyyaml (>=5.4.1)",
+    "scikit-learn (>=0.21)",
+    "tqdm",
+]
 
 [dependency-groups]
 ompl-build = ["pygccxml==2.2.1", "pyplusplus==1.8.5"]

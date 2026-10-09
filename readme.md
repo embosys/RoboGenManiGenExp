@@ -42,6 +42,18 @@ Genesis is still under active development and will be released soon. This repo c
   - [Learn Skills](#Learn-skills)
   - [Pre-generated Tasks](#Pre-generated-tasks)
 ## Setup
+
+For this fork's external scene experiments, use the isolated uv environment:
+
+```bash
+bash scripts/setup_uv.sh
+CUDA_VISIBLE_DEVICES=0 uv run python run_external_scene.py --help
+```
+
+See [the experiment environment guide](docs/external_scenes.md#environment)
+for details. `prepare.sh` activates this `.venv`; the original conda setup below
+is retained for reference and the original asset retrieval pipeline.
+
 ### RoboGen
 Clone this git repo.
 ```
@@ -157,5 +169,3 @@ If you find this codebase/paper useful for your research, please consider citing
   year={2023}
 }
 ```
-
-
