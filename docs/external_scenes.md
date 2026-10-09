@@ -209,6 +209,31 @@ Each reward stage still trains for one million steps. `--seed` controls the
 scene/NumPy seed; the original SAC seed remains 0 and is separately recorded as
 `training_seed`. The old `execute.py` entry point keeps its default output paths.
 
+## Replay and export a final state
+
+After generation and training complete, replay the saved primitive code and load
+the saved RL policy checkpoints without calling the generator or training a new
+policy:
+
+```bash
+.venv/bin/python replay_save_state.py "$RUN" --seed 0 \
+  --settle-seconds 0.5
+```
+
+Pass `--training-algo ppo` only when the run used PPO; current external-scene
+execution defaults to SAC.
+
+Each invocation allocates the next unused `state/replay_NNN/` directory. It
+contains `manifest.json`, `final_state.json`, the native `final_state.pkl`, a
+a step result file. The JSON state
+uses canonical source-scene entity IDs, world positions, `wxyz` quaternions, and
+revolute/prismatic joint values. RoboGen's robot entity is listed under
+`skipped_entities`, because its robot topology is not converted into Genesis.
+The manifest stores relative paths to the source scene, generated code, prepared
+RoboGen scene manifest, and selected best checkpoints.
+Physics settling runs once at the end and is included in the recorded
+`settle_seconds` value.
+
 ## Verification and evaluation
 
 `--action check` checks pre-settling positions/orientations, fixed-object drift,
