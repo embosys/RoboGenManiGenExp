@@ -348,6 +348,7 @@ def replay(run_dir, seed=None, settle_seconds=0.5, gui=False,
             "state_file": "final_state.json",
             "native_state_file": "final_state.pkl",
             "seed": replay_seed,
+            **{key: run_meta[key] for key in ("batch_hash", "batch_run_id", "batch_name") if key in run_meta},
             "settle_seconds": settle_seconds,
             "source": {
                 "code": {

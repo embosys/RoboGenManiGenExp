@@ -1,6 +1,7 @@
 """Scene-local run records for the external-scene adapter."""
 import hashlib
 import json
+import os
 import subprocess
 import sys
 import time
@@ -43,11 +44,19 @@ class RunOutput:
         self.phase = 'initialization'
         self.started = time.monotonic()
         root = args.output_dir.expanduser().resolve() if args.output_dir else scene.parent / 'robogen'
+        batch_identity = {key: os.environ[env] for env, key in (
+            ('MANIGEN_BATCH_HASH', 'batch_hash'),
+            ('MANIGEN_BATCH_RUN_ID', 'batch_run_id'),
+            ('MANIGEN_BATCH_NAME', 'batch_name'),
+        ) if env in os.environ}
         if args.run_dir:
             self.path = args.run_dir.expanduser().resolve()
             self.meta = json.loads((self.path / 'run_meta.json').read_text())
             if self.meta['scene'] != str(scene) or self.meta['scene_sha256'] != hashlib.sha256(scene.read_bytes()).hexdigest():
                 raise ValueError('Run directory belongs to another scene or the scene has changed')
+            for key, value in batch_identity.items():
+                if self.meta.get(key) != value:
+                    raise ValueError('Run directory has a different ' + key)
             for name in ('seed', 'robot_mode'):
                 value = getattr(args, name)
                 if value is not None and value != self.meta[name]:
@@ -73,6 +82,7 @@ class RunOutput:
                          'scene_sha256': hashlib.sha256(scene.read_bytes()).hexdigest(),
                          'robot_mode': args.robot_mode, 'seed': args.seed, 'training_seed': 0,
                          'started_at': datetime.now(timezone.utc).isoformat(), 'sessions': []}
+            self.meta.update(batch_identity)
             try:
                 repository = Path(__file__).resolve().parent
                 self.meta['source_commit'] = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=repository, stderr=subprocess.DEVNULL, text=True).strip()
