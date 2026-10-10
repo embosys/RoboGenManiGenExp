@@ -14,6 +14,9 @@ output/
 # CodeGraph local index
 .codegraph/
 
+# Local agent instructions
+/AGENTS.md
+
 # Local LLM credentials
 .env
 .ENV
