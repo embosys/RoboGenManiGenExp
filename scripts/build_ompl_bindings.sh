@@ -54,7 +54,8 @@ PY
 output/ompl_env/bin/cmake -S output/tools/ompl-1.5.2 -B output/tools/ompl-1.5.2/build \
   -DCMAKE_POLICY_VERSION_MINIMUM=3.5 -DCMAKE_CXX_COMPILER="$task_compiler" -DCMAKE_PREFIX_PATH="$task_prefix" -DBOOST_ROOT="$task_prefix" \
   -DPYTHON_EXEC="$PWD/.venv/bin/python" -DCASTXML="$PWD/output/castxml_env/bin/castxml" \
-  -DOMPL_BUILD_DEMOS=OFF -DOMPL_BUILD_TESTS=OFF -DOMPL_BUILD_PYTESTS=OFF -DOMPL_BUILD_PYBINDINGS=ON
+  -DOMPL_BUILD_DEMOS=OFF -DOMPL_BUILD_TESTS=OFF -DOMPL_BUILD_PYTESTS=OFF -DOMPL_BUILD_PYBINDINGS=ON \
+  -DOMPL_REGISTRATION=OFF
 output/ompl_env/bin/cmake --build output/tools/ompl-1.5.2/build --target util.h base.h geometric.h -j 2
 task_python="$PWD/.venv/bin/python"
 (

@@ -31,13 +31,26 @@ def capture_console(path):
 
         def write(self, text):
             self.console.write(text)
-            self.log.write(text)
-            self.log.flush()
+            # Logging handlers can retain this stream after capture has ended.
+            if not self.log.closed:
+                self.log.write(text)
+                self.log.flush()
             return len(text)
 
         def flush(self):
             self.console.flush()
-            self.log.flush()
+            if not self.log.closed:
+                self.log.flush()
+
+        def fileno(self):
+            return self.console.fileno()
+
+        def close(self):
+            # The context owns the log; the caller owns the console stream.
+            self.flush()
+
+        def __getattr__(self, name):
+            return getattr(self.console, name)
 
     with open(path, 'a', encoding='utf-8') as log:
         with redirect_stdout(Tee(sys.stdout, log)), redirect_stderr(Tee(sys.stderr, log)):

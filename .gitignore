@@ -8,10 +8,14 @@ all_last_state_files_*.txt
 all*.gif
 env_construction/
 .venv/
+uv.lock
 output/
 
 # CodeGraph local index
 .codegraph/
+
+# Local agent instructions
+/AGENTS.md
 
 # Local LLM credentials
 .env
