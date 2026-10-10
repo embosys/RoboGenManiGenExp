@@ -135,6 +135,11 @@ Ray worker output may remain in the terminal or Ray logs rather than `run.log`.
 Continuation means running another pipeline stage with the existing code; it
 is not policy-checkpoint resumption and does not skip completed substeps.
 
+Ray uses a short, stable `/tmp/rg-<hash>` runtime directory for each run. This
+keeps its Unix socket paths within the platform limit even when the scene or
+output path is long. Training and replay of the same run reuse the directory;
+separate run IDs, including different seeds, use separate directories.
+
 `run_meta.json` records the scene and manifest hashes, source commit/dirty state,
 robot mode, scene seed, training seed, package versions, solution provenance and
 non-secret command arguments. `result.json` records `status`, `native_success`,

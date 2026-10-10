@@ -2,6 +2,7 @@
 import argparse
 import ast
 from datetime import datetime
+import fcntl
 import hashlib
 import json
 import os
@@ -111,6 +112,21 @@ def verify_sources(manifest):
         path = Path(name)
         if hashlib.sha256(path.read_bytes()).hexdigest() != expected:
             raise ValueError("Source changed; rerun --action prepare: %s" % name)
+
+
+def prepare_cached_scene(scene, cache, force=False):
+    cache = Path(cache)
+    cache.parent.mkdir(parents=True, exist_ok=True)
+    with (cache.parent / (cache.name + ".lock")).open("a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        manifest_path = cache / "manifest.json"
+        if force or not manifest_path.exists():
+            manifest_path = prepare_scene(scene, cache)
+        manifest = json.loads(manifest_path.read_text())
+        if manifest["source_scene"] != str(scene):
+            raise ValueError("Asset cache belongs to another scene")
+        verify_sources(manifest)
+        return manifest_path, manifest
 
 
 def normalize_solution_response(response):
@@ -330,13 +346,7 @@ def main():
             run.phase = "prepare"
             cache_key = hashlib.sha256((str(scene) + run.meta["scene_sha256"]).encode()).hexdigest()
             cache = run.path.parent / "_assets" / cache_key
-            manifest_path = cache / "manifest.json"
-            if args.action == "prepare" or not manifest_path.exists():
-                manifest_path = prepare_scene(scene, cache)
-            manifest = json.loads(manifest_path.read_text())
-            if manifest["source_scene"] != str(scene):
-                raise ValueError("Asset cache belongs to another scene")
-            verify_sources(manifest)
+            manifest_path, manifest = prepare_cached_scene(scene, cache, force=args.action == "prepare")
             run.meta["manifest"] = str(manifest_path)
             run.meta["manifest_sha256"] = hashlib.sha256(manifest_path.read_bytes()).hexdigest()
             config_path, directory = prepare_task(manifest_path, args.robot_mode, args.seed, run.path, args.solution,

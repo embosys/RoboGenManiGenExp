@@ -17,6 +17,11 @@ def write_json(path, value):
     temporary.replace(path)
 
 
+def ray_temp_dir(run_dir):
+    run_path = str(Path(run_dir).expanduser().resolve()).encode('utf-8')
+    return str(Path('/tmp') / ('rg-' + hashlib.sha256(run_path).hexdigest()[:12]))
+
+
 @contextmanager
 def capture_console(path):
     # ponytail: Python streams only; native simulator output remains in the terminal.

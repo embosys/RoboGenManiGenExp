@@ -290,7 +290,9 @@ def replay(run_dir, seed=None, settle_seconds=0.5, gui=False,
         if checkpoints:
             import ray
             if not ray.is_initialized():
-                ray.init(num_cpus=1, ignore_reinit_error=True, log_to_driver=False)
+                from run_output import ray_temp_dir
+                ray.init(num_cpus=1, ignore_reinit_error=True, log_to_driver=False,
+                         _temp_dir=ray_temp_dir(run_dir))
                 ray_started_here = True
 
         for step in steps:
