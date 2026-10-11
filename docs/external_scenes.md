@@ -321,3 +321,16 @@ The current external robot converter explicitly supports the sample's unscaled,
 fixed-base Franka Panda MJCF. Unsupported articulated assets, free bases, joint
 layouts and joint anchors fail instead of being silently approximated. No claim
 of paper reproduction or task success follows from scene import alone.
+
+### Specified goal points during generation
+
+When `task.goal_point` is present, the adapter passes it verbatim to the original
+generator with `target_id`, `surface` and optional `goal_half_size`. Coordinates
+are world XYZ in meters, matching the imported object positions, with no Y-axis
+flip. The prompt requires the generated primitives and reward code to use the
+specified object placement goal and account for grasp offsets. Invalid points
+or unknown target IDs fail before the LLM request. This affects newly generated
+solutions; existing or supplied solutions are reused unchanged. Regenerate an
+existing run with `--action generate --run-dir PATH` to apply the new prompt.
+This prompt change does not alter the shared final evaluator or guarantee that
+the model-generated code obeys the goal. The exact input is retained in LLM logs.

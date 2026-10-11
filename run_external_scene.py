@@ -274,6 +274,28 @@ def generate_solution(manifest_path, config_path, directory, model, cached_respo
     log = directory.parent / "llm" / "reward.json"
     log.parent.mkdir(parents=True, exist_ok=True)
     task = manifest["task"]
+    task_description = task["description"]
+    if task.get("goal_point") is not None:
+        point = np.asarray(task["goal_point"], dtype=float)
+        if point.shape != (3,) or not np.isfinite(point).all():
+            raise ValueError("task.goal_point must contain three finite world-coordinate values")
+        target = task.get("target_id")
+        entity_ids = {entity["id"] for entity in manifest["entities"]}
+        if target not in entity_ids:
+            raise ValueError("task.target_id must identify a scene entity for goal-point tasks")
+        goal = {key: task[key] for key in ("target_id", "surface", "goal_point", "goal_half_size")
+                if key in task}
+        task_description += (
+            "\n\nAuthoritative scene task goal (JSON):\n" + json.dumps(goal) +
+            "\nUse this exact goal_point as the placement goal for target_id in the generated "
+            "primitive parameters and reward code. It is world-frame XYZ in meters, in the "
+            "same coordinate frame as the listed object centers. Preserve the coordinates "
+            "verbatim; do not invent another point, use the support object's center, or "
+            "flip the Y axis. The surface identifies the support object, not a replacement "
+            "goal position. Account for the held object's grasp offset when computing an "
+            "end-effector target; goal_point specifies the object's placement goal, not "
+            "the end-effector position."
+        )
     original_query = generator.query
 
     def compatible_query(*args, **kwargs):
@@ -282,7 +304,7 @@ def generate_solution(manifest_path, config_path, directory, model, cached_respo
 
     with patch.object(generator, "query", compatible_query):
         generated = generator.decompose_and_generate_reward_or_primitive(
-            task["name"], task["description"], yaml.safe_dump(objects),
+            task["name"], task_description, yaml.safe_dump(objects),
             "All scene objects are rigid meshes with a single base link and no joints.",
             "\n".join(e["id"]+": rigid "+("fixed" if e.get("fixed") else "movable")+" object"
                       for e in manifest["entities"] if not e.get("robot")),

@@ -20,3 +20,6 @@ output/
 # Local LLM credentials
 .env
 .ENV
+
+# PyCharm local configuration
+.idea/
