@@ -165,6 +165,9 @@ Ray uses a short, stable `/tmp/rg-<hash>` runtime directory for each run. This
 keeps its Unix socket paths within the platform limit even when the scene or
 output path is long. Training and replay of the same run reuse the directory;
 separate run IDs, including different seeds, use separate directories.
+The ManiGen batch runner copies Ray session diagnostics into the task's
+`logs/ray/` after the job stops; sockets and object-store runtime files remain
+in `/tmp`. Batch-stage console logs are also retained under the task's `logs/`.
 
 `run_meta.json` records the scene and manifest hashes, source commit/dirty state,
 robot mode, scene seed, training seed, package versions, solution provenance and
@@ -264,6 +267,8 @@ The manifest stores relative paths to the source scene, generated code, prepared
 RoboGen scene manifest, and selected best checkpoints.
 Physics settling runs once at the end and is included in the recorded
 `settle_seconds` value.
+Policy replay writes RLlib logs to each reward stage's `ray_results/` inside
+the new replay directory, rather than the shared `data/local/ray_results` default.
 
 ## Verification and evaluation
 

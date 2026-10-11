@@ -165,7 +165,8 @@ def _run_reward(task_config, solution_dir, step, previous_state, checkpoint, out
     agent = None
     try:
         agent, _ = load_policy(training_algo, task_name, str(checkpoint), seed=seed,
-                               env_config=env_config, eval=True)
+                               env_config=env_config, eval=True,
+                               log_dir=str(output_state.parent / "ray_results"))
         observation = env.reset()
         done = False
         total_reward = 0.0
