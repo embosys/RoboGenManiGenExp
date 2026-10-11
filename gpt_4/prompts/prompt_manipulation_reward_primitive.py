@@ -1,4 +1,8 @@
+import ast
 import copy
+import keyword
+import re
+import textwrap
 from gpt_4.query import query
 import os
 
@@ -527,6 +531,92 @@ gym.register(
 )
 """
 
+def parse_solution_response(response):
+    """Parse each Markdown substep without changing its generated Python logic."""
+    heading = re.compile(r"^\s*(?:#{1,6}\s*)?[*_]*substep\s+\d+\s*:\s*(.*?)\s*$", re.I)
+    fence = re.compile(r"^\s*(`{3,}|~{3,})(.*?)\s*$")
+    action_pattern = re.compile(r"^(?:delta-translation|normalized-direct-translation)$")
+    sections, current = [], None
+    lines = response.splitlines()
+    index = 0
+    while index < len(lines):
+        line = lines[index]
+        block = fence.match(line)
+        if block:
+            marker, label = block.groups()
+            closing = re.compile(re.escape(marker[0]) + "{" + str(len(marker)) + ",}")
+            start = index + 1
+            index = start
+            while index < len(lines) and not closing.fullmatch(lines[index].strip()):
+                index += 1
+            if index == len(lines):
+                raise ValueError("Unclosed code fence in generated solution")
+            if current is not None:
+                current["blocks"].append((label.strip().lower(), "\n".join(lines[start:index])))
+        else:
+            match = heading.match(line)
+            if match:
+                # Canonicalize descriptions once, so existing readers' space-to-underscore
+                # conversion agrees with the generated module and class names.
+                name = re.sub(r"\W+", " ", match[1].strip().strip("*_ ").lower().replace("'", "")).strip()
+                identifier = name.replace(" ", "_")
+                if not identifier.isidentifier() or keyword.iskeyword(identifier):
+                    raise ValueError("Invalid generated substep name: " + match[1])
+                if any(section["name"] == name for section in sections):
+                    raise ValueError("Duplicate generated substep name: " + name)
+                current = {"name": name, "blocks": [], "actions": []}
+                sections.append(current)
+            elif current is not None:
+                plain = line.strip().replace("*", "").replace("`", "")
+                match = re.fullmatch(r"action\s+space\s*:\s*(\S+)\s*", plain, re.I)
+                if match and action_pattern.fullmatch(match[1]):
+                    current["actions"].append(match[1])
+
+        index += 1
+
+    if not sections:
+        raise ValueError("No substeps found in generated solution")
+    substeps, substep_types, reward_or_primitives, action_spaces = [], [], [], []
+    for section in sections:
+        kind, code = None, None
+        actions = section["actions"]
+        for label, body in section["blocks"]:
+            content = "\n".join(line for line in body.splitlines() if not line.lstrip().startswith("#")).strip().strip("`\"'")
+            if action_pattern.fullmatch(content):
+                actions.append(content)
+                continue
+            if code is not None or label not in ("primitive", "reward", "python", "", "py"):
+                continue
+            body = textwrap.dedent(body.expandtabs(4)).strip("\n")
+            try:
+                tree = ast.parse(body)
+            except SyntaxError as error:
+                raise ValueError("Invalid Python in substep: " + section["name"]) from error
+            reward = any(isinstance(node, ast.FunctionDef) and node.name == "_compute_reward" for node in tree.body)
+            primitive = any(isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+                            and node.func.id in ("grasp_object", "grasp_object_link", "release_grasp")
+                            for node in ast.walk(tree))
+            if label in ("primitive", "reward"):
+                kind = label
+            elif reward:
+                kind = "reward"
+            elif primitive:
+                kind = "primitive"
+            else:
+                raise ValueError("Cannot identify code type in substep: " + section["name"])
+            code = textwrap.indent(body, "    " if kind == "reward" else "        ") + "\n"
+
+        if code is None:
+            raise ValueError("Missing code in substep: " + section["name"])
+        if kind == "reward" and len(set(actions)) != 1:
+            raise ValueError("Missing or conflicting action space in substep: " + section["name"])
+        substeps.append(section["name"])
+        substep_types.append(kind)
+        reward_or_primitives.append(code)
+        action_spaces.append(actions[0] if kind == "reward" else "None")
+    return substeps, substep_types, reward_or_primitives, action_spaces
+
+
 def decompose_and_generate_reward_or_primitive(task_name, task_description, initial_config, articulation_tree, semantics, 
                               involved_links, involved_joints, object_id, yaml_config_path, save_path, 
                               temperature=0.4, model='gpt-4'):
@@ -554,58 +644,7 @@ Joints:
     system = "You are a helpful assistant."
     reward_response = query(system, filled_user_contents, assistant_contents, save_path=save_path, debug=False, 
                             temperature=temperature, model=model)
-    res = reward_response.split("\n")
-
-    substeps = []
-    substep_types = []
-    reward_or_primitives = []
-    action_spaces = []
-
-    num_lines = len(res)
-    for l_idx, line in enumerate(res):
-        line = line.lower()
-        if line.startswith("substep"):
-            substep_name = line.split(":")[1]
-            substeps.append(substep_name)
-
-            py_start_idx, py_end_idx = l_idx, l_idx
-            for l_idx_2 in range(l_idx + 1, num_lines):
-                ### this is a reward
-                if res[l_idx_2].lower().startswith("```reward"):
-                    substep_types.append("reward")
-                    py_start_idx = l_idx_2 + 1
-                    for l_idx_3 in range(l_idx_2 + 1, num_lines):
-                        if "```" in res[l_idx_3]:
-                            py_end_idx = l_idx_3
-                            break
-            
-                if res[l_idx_2].lower().startswith("```primitive"):
-                    substep_types.append("primitive")
-                    action_spaces.append("None")
-                    py_start_idx = l_idx_2 + 1
-                    for l_idx_3 in range(l_idx_2 + 1, num_lines):
-                        if "```" in res[l_idx_3]:
-                            py_end_idx = l_idx_3
-                            break
-                    break
-
-                if res[l_idx_2].lower().startswith("```action space"):
-                    action_space = res[l_idx_2 + 1]
-                    action_spaces.append(action_space)
-                    break
-
-            reward_or_primitive_lines = res[py_start_idx:py_end_idx]
-            reward_or_primitive_lines = [line.lstrip() for line in reward_or_primitive_lines]
-            if substep_types[-1] == 'reward':
-                reward_or_primitive_lines[0] = "    " + reward_or_primitive_lines[0]
-                for idx in range(1, len(reward_or_primitive_lines)):
-                    reward_or_primitive_lines[idx] = "        " + reward_or_primitive_lines[idx]
-            else:
-                for idx in range(0, len(reward_or_primitive_lines)):
-                    reward_or_primitive_lines[idx] = "        " + reward_or_primitive_lines[idx]
-            reward_or_primitive = "\n".join(reward_or_primitive_lines) + "\n"
-
-            reward_or_primitives.append(reward_or_primitive)
+    substeps, substep_types, reward_or_primitives, action_spaces = parse_solution_response(reward_response)
 
     task_name = task_name.replace(" ", "_")
     parent_folder = os.path.dirname(os.path.dirname(save_path))
@@ -628,8 +667,7 @@ Joints:
         f.write(yaml_config_path)
 
     for idx, (substep, type, reward_or_primitive) in enumerate(zip(substeps, substep_types, reward_or_primitives)):
-        substep = substep.lstrip().replace(" ", "_")
-        substep = substep.replace("'", "")
+        substep = substep.replace(" ", "_")
         file_name = os.path.join(task_save_path, f"{substep}.py")
 
         if type == 'reward':
@@ -646,5 +684,3 @@ Joints:
                 f.write(file_content)
 
     return task_save_path
-
-
