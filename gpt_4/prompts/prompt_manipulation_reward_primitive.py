@@ -639,7 +639,16 @@ Joints:
 """.format(task_name, task_description, initial_config, articulation_tree, semantics, involved_links, involved_joints)
     
     filled_user_contents = copy.deepcopy(user_contents)
-    filled_user_contents[-1] = filled_user_contents[-1] + query_task
+    filled_user_contents[-1] = filled_user_contents[-1] + query_task + """
+Execution rules for this task:
+- RL policies still output 7 action values, but only the first 6 control the end-effector pose. The seventh suction value is ignored.
+- Each RL stage preserves the suction/grasp state it starts with, including after reset. RL cannot acquire or release a grasp; use grasp_object or grasp_object_link primitives before manipulation that requires a grasp.
+- After placing an object at its goal, add a separate release_grasp primitive substep. After manipulating an articulated link, release it as well unless the requested final state explicitly requires holding it.
+- The release primitive code must use:
+  rgbs, final_state = release_grasp(self)
+  success = not self.activated
+- Reward and success functions must not activate/deactivate suction, modify grasp state, or call grasp/release primitives. They should only compute reward and success.
+"""
 
     system = "You are a helpful assistant."
     reward_response = query(system, filled_user_contents, assistant_contents, save_path=save_path, debug=False, 

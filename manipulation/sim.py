@@ -78,12 +78,15 @@ class SimpleEnv(gym.Env):
 
         self.seed()
         self.set_scene()
+        self.initial_suction_state = (self.activated, self.suction_obj_id,
+                                     self.suction_contact_link, self.suction_to_obj_pose)
         self.setup_camera_rpy()
         self.scene_lower, self.scene_upper = self.get_scene_bounds()
         self.scene_center = (self.scene_lower + self.scene_upper) / 2
         self.scene_range = (self.scene_upper - self.scene_lower) / 2
 
         self.grasp_action_mag = 0.06 if not self.use_suction else 1
+        # Keep seven policy outputs; the last is ignored when using suction.
         self.action_low = np.array([-1, -1, -1, -1, -1, -1, -1])
         self.action_high = np.array([1, 1, 1, 1, 1, 1, self.grasp_action_mag])
 
@@ -704,12 +707,19 @@ class SimpleEnv(gym.Env):
                 p.resetJointState(obj_id, joint_idx, joint_angle, physicsClientId=self.id)
 
     def reset(self):
+        if self.use_suction:
+            self.deactivate_suction()
         p.restoreState(self.init_state, physicsClientId=self.id)
 
         self.time_step = 0
         self.success = False
         if self.use_suction:
-            self.deactivate_suction()
+            # Bullet restores body states but does not recreate removed constraints.
+            (self.activated, self.suction_obj_id, self.suction_contact_link,
+             self.suction_to_obj_pose) = self.initial_suction_state
+            if self.activated:
+                self.create_suction_constraint(self.suction_obj_id, self.suction_contact_link,
+                                               self.suction_to_obj_pose)
 
         return self._get_obs()
 
@@ -766,7 +776,6 @@ class SimpleEnv(gym.Env):
 
             translation = action[:3]
             rotation = action[3:6]
-            suction = action[6]
 
             joint = agent.right_end_effector if 'right' in agent.controllable_joints else agent.left_end_effector
             agent_joint_angles = agent.get_joint_angles(agent.controllable_joint_indices)
@@ -791,12 +800,9 @@ class SimpleEnv(gym.Env):
             agent_joint_angles = agent.ik(joint, pos, orient, ik_indices, max_iterations=200, use_current_as_rest=False)
             agent.control(agent.controllable_joint_indices, agent_joint_angles, gains[i], forces[i])
 
-            # gripper
+            # Keep the existing suction attachment unchanged throughout RL.
             if not self.use_suction:
-                agent.set_gripper_open_position(agent.right_gripper_indices, [suction])
-            else:
-                if suction >= 0: self.activate_suction()
-                else: self.deactivate_suction()
+                agent.set_gripper_open_position(agent.right_gripper_indices, [action[6]])
 
         for _ in range(self.frameskip):
             p.stepSimulation(physicsClientId=self.id)                   
@@ -884,6 +890,8 @@ class SimpleEnv(gym.Env):
 
     def deactivate_suction(self):
         self.activated = False
+        self.suction_obj_id = None
+        self.suction_contact_link = None
         if self.contact_constraint is not None:
             p.removeConstraint(self.contact_constraint, physicsClientId=self.id)
             self.contact_constraint = None

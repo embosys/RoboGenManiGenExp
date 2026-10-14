@@ -238,7 +238,8 @@ legacy repository-relative module imports remain supported. Generated code is
 adapted only by replacing its `SimpleEnv` import, with the author's generated
 source archived under `artifacts`. The existing solution validation remains.
 
-Original primitives, suction, OMPL planners and SAC hyperparameters are retained.
+Original primitives, OMPL planners and SAC hyperparameters are retained.
+RL suction control follows the fixed-grasp rules below.
 Each reward stage still trains for one million steps. `--seed` controls the
 scene/NumPy seed; the original SAC seed remains 0 and is separately recorded as
 `training_seed`. The old `execute.py` entry point keeps its default output paths.
@@ -334,3 +335,24 @@ solutions; existing or supplied solutions are reused unchanged. Regenerate an
 existing run with `--action generate --run-dir PATH` to apply the new prompt.
 This prompt change does not alter the shared final evaluator or guarantee that
 the model-generated code obeys the goal. The exact input is retained in LLM logs.
+
+### Fixed grasp during RL stages
+
+RL policies retain their seven-dimensional action space. Only the first six
+values control the end-effector pose; the seventh suction value is ignored.
+Each RL stage keeps its initial suction state, and reset restores the initial
+grasp constraint when one exists. A stage that starts without a grasp does not
+automatically acquire one. Grasping and releasing remain explicit primitives.
+
+The generation prompt requires a separate `release_grasp()` primitive after
+placing an object or completing articulated-link manipulation, unless the task
+explicitly requires holding it at the end. Release success is checked with
+`not self.activated`; reward functions must not change suction state.
+Existing generated solutions are not rewritten. Regenerate with
+`--action generate --run-dir PATH` to apply these planning instructions.
+
+The seven-dimensional checkpoint structure remains compatible, but the suction
+action semantics have changed; retrain policies for formal experiments. This
+change leaves the reward, episode horizon and SAC hyperparameters unchanged.
+Reaching a goal during RL still does not automatically end the episode or release
+the object.
